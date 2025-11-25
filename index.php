@@ -261,10 +261,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             border-radius: 4px;
             overflow-x: auto;
             margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
         .codes input,
         .codes textarea {
-            width: 100%;
+            flex: 1 1 auto;
             border: none;
             background: transparent;
             font: inherit;
@@ -275,6 +278,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         .codes textarea {
             resize: none;
+        }
+        .copy-btn {
+            flex: 0 0 auto;
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 1px solid #999;
+            background: #e0e0ff;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .copy-btn:hover {
+            background: #c5c5ff;
+        }
+        .upload-progress {
+            font-size: 13px;
+            color: #666;
+            margin-top: 4px;
         }
         button {
             padding: 8px 14px;
@@ -292,14 +313,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             padding-top: 12px;
             font-size: 14px;
         }
-        .github-note textarea {
-            width: 100%;
-            min-height: 60px;
+        .github-note a {
             font-family: Menlo, Monaco, "Courier New", monospace;
-            font-size: 13px;
-            padding: 6px;
-            border-radius: 4px;
-            border: 1px solid #ccc;
         }
     </style>
 </head>
@@ -346,7 +361,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <div id="preview" class="preview"></div>
 
 <div class="github-note">
-    <div>https://github.com/iamblueming/ezdnd</div>
+    <div><a href="https://github.com/iamblueming/ezdnd" target="_blank" rel="noopener">https://github.com/iamblueming/ezdnd</a></div>
 </div>
 
 <script>
@@ -395,6 +410,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         history.replaceState(null, '', newUrl);
     }
 
+    function makeCopyButton(targetElement) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'copy-btn';
+        btn.textContent = 'Copy';
+
+        btn.addEventListener('click', () => {
+            const text = ('value' in targetElement && targetElement.value !== undefined)
+                ? targetElement.value
+                : targetElement.textContent;
+
+            navigator.clipboard.writeText(text).then(() => {
+                const old = btn.textContent;
+                btn.textContent = 'Copied!';
+                setTimeout(() => {
+                    btn.textContent = old;
+                }, 800);
+            }).catch(() => {
+                alert('Failed to copy.');
+            });
+        });
+
+        return btn;
+    }
+
+    // Upload with progress (percentage)
     function uploadFile(file) {
         const folder = getCurrentFolder();
         const token  = getCurrentToken();
@@ -409,21 +450,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         formData.append('folder', folder);
         formData.append('token', token);
 
-        fetch(uploadEndpoint, {
-            method: 'POST',
-            body: formData
-        }).then(res => res.json())
-            .then(data => {
+        // Placeholder item with progress
+        const item = document.createElement('div');
+        item.className = 'preview-item';
+
+        const title = document.createElement('div');
+        title.textContent = file.name;
+        title.style.fontSize = '13px';
+        item.appendChild(title);
+
+        const progressText = document.createElement('div');
+        progressText.className = 'upload-progress';
+        progressText.textContent = 'Uploading... 0%';
+        item.appendChild(progressText);
+
+        previewBox.prepend(item);
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', uploadEndpoint, true);
+
+        xhr.upload.onprogress = function (e) {
+            if (e.lengthComputable) {
+                const percent = Math.round((e.loaded / e.total) * 100);
+                progressText.textContent = 'Uploading... ' + percent + '%';
+            }
+        };
+
+        xhr.onload = function () {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                let data;
+                try {
+                    data = JSON.parse(xhr.responseText);
+                } catch (e) {
+                    alert('Upload error: invalid server response.');
+                    return;
+                }
                 if (!data.success) {
                     alert('Upload failed: ' + (data.error || 'unknown error'));
                     return;
                 }
+                // Replace placeholder with final preview
+                item.remove();
                 addPreview(file.name, data.url, data.html, data.markdown);
-            })
-            .catch(err => {
-                console.error(err);
-                alert('Upload error.');
-            });
+            } else {
+                alert('Upload failed: HTTP ' + xhr.status);
+            }
+        };
+
+        xhr.onerror = function () {
+            alert('Upload error.');
+        };
+
+        xhr.send(formData);
     }
 
     function addPreview(filename, url, htmlCode, mdCode) {
@@ -443,6 +521,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         urlInput.readOnly = true;
         urlInput.value = url;
         urlBox.appendChild(urlInput);
+        urlBox.appendChild(makeCopyButton(urlInput));
         item.appendChild(urlBox);
 
         // HTML
@@ -451,8 +530,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         const htmlArea = document.createElement('textarea');
         htmlArea.readOnly = true;
         htmlArea.rows = 2;
-        htmlArea.textContent = htmlCode;
+        htmlArea.value = htmlCode;
         htmlBox.appendChild(htmlArea);
+        htmlBox.appendChild(makeCopyButton(htmlArea));
         item.appendChild(htmlBox);
 
         // Markdown
@@ -461,8 +541,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         const mdArea = document.createElement('textarea');
         mdArea.readOnly = true;
         mdArea.rows = 2;
-        mdArea.textContent = mdCode;
+        mdArea.value = mdCode;
         mdBox.appendChild(mdArea);
+        mdBox.appendChild(makeCopyButton(mdArea));
         item.appendChild(mdBox);
 
         // Image preview (smaller, at the end)
